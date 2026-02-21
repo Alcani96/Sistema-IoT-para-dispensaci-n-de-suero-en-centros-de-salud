@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Hospital IV Monitoring Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
+
+<style>
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background: linear-gradient(135deg, #eef4f9, #dbe9f4);
+  margin: 0;
+  padding: 30px;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 40px;
+  color: #1e3a5f;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 25px;
+}
+
+.card {
+  background: white;
+  border-radius: 16px;
+  padding: 25px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: transform 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+}
+
+.chart-container {
+  width: 65%;
+}
+
+.chart-container h2 {
+  margin-top: 0;
+  color: #1e3a5f;
+}
+
+.tank {
+  width: 80px;
+  height: 260px;
+  border-radius: 20px;
+  background: #f1f5f9;
+  border: 2px solid #cbd5e1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.tank-fill {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  transition: height 1s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(to top, rgba(0,0,0,0.15), rgba(255,255,255,0.15));
+}
+
+.tank-value {
+  position: absolute;
+  font-weight: 700;
+  font-size: 1.4em;
+  z-index: 2;
+  transition: color 0.3s ease;
+}
+
+
+.status {
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.alert {
+  color: #dc2626;
+  animation: blink 1s infinite;
+}
+    
+#summaryBar {
+  background: white;
+  padding: 15px 25px;
+  border-radius: 12px;
+  margin-bottom: 25px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.06);
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+}
+    
+#downloadBar {
+  margin-top: 40px;
+  background: white;
+  padding: 15px;
+  border-radius: 12px;
+  text-align: center;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.06);
+}
+
+#downloadBar a {
+  text-decoration: none;
+  font-weight: 600;
+  color: #1e3a5f;
+}
+    
+#controlsBar {
+  background: white;
+  padding: 20px 25px;
+  border-radius: 16px;
+  margin-bottom: 25px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+#controlsBar select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 40px 10px 15px;
+
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e3a5f;
+
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#controlsBar select:hover {
+  border-color: #3b82f6;
+}
+
+#controlsBar select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
+}
+
+    
+@keyframes blink {
+  50% { opacity: 0.3; }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .card {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .chart-container {
+    width: 100%;
+  }
+
+  .tank {
+    margin-top: 20px;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<h1>🏥 Hospital IV Monitoring Dashboard</h1>
+     
+<div id="summaryBar"></div>
+    
+<div id="controlsBar">
+  <select id="patientFilter">
+    <option value="all">Mostrar todos</option>
+  </select>
+
+  <select id="levelFilter">
+    <option value="all">Todos los niveles</option>
+    <option value="stable">Estables (>40%)</option>
+    <option value="low">Nivel bajo (20-40%)</option>
+    <option value="critical">Críticos (≤20%)</option>
+    <option value="standby">En espera (Standby)</option>
+  </select>
+</div>
+
+<div class="grid" id="dashboard"></div>
+
+<script>
+
+// INICIALIZAR EMAILJS
+emailjs.init("S4-rhAqiZca3M-u9C");//YOUR_PUBLIC_KEY
+
+// CONFIGURACIÓN 4 PACIENTES
+const channels = [
+  { id: 3268470, field: 1, readKey: "GYNAD2410DZVNEOV", name: "Paciente 1" },
+  { id: 3268473, field: 1, readKey: "HEEKBOROMQ3GPTWV", name: "Paciente 2" },
+  { id: 3268474, field: 1, readKey: "WC8I8JHQBQTKLTHX", name: "Paciente 3" },
+  { id: 3268476, field: 1, readKey: "WY8KEL4DN4ZORMTK", name: "Paciente 4" }
+];
+
+const charts = {};
+const emailSent = {};
+    
+const cards = {};
+const lastTimestamps = {};
+const lastValues = {};
+const STANDBY_LIMIT = 60000; // 1 minuto en ms
+
+function createPatientCard(channel, index) {
+
+  const container = document.getElementById("dashboard");
+  const card = document.createElement("div");
+  card.className = "card";
+
+  card.innerHTML = `
+    <div class="chart-container">
+      <h2 id="title${index}">${channel.name}</h2>
+
+      <canvas id="chart${index}"></canvas>
+      <p id="status${index}" class="status"></p>
+      <p id="prediction${index}"></p>
+    </div>
+	<div class="tank">
+		<div id="tankFill${index}" class="tank-fill"></div>
+		<div id="tankValue${index}" class="tank-value">--%</div>
+	</div>
+
+  `;
+
+  container.appendChild(card);
+  cards[index] = card;
+
+  const ctx = document.getElementById(`chart${index}`).getContext("2d");
+
+  charts[index] = new Chart(ctx, {
+    type: "line",
+    data: { labels: [], datasets: [{ data: [], borderWidth: 3, tension: 0.3 }] },
+    options: {
+      scales: { y: { min: 0, max: 100 } },
+      plugins: { legend: { display: false } }
+    }
+  });
+
+  emailSent[index] = false;
+}
+
+channels.forEach((c,i)=>createPatientCard(c,i));
+    
+const patientFilter = document.getElementById("patientFilter");
+
+channels.forEach((c,i)=>{
+  const opt = document.createElement("option");
+  opt.value = i;
+  opt.textContent = c.name;
+  patientFilter.appendChild(opt);
+});
+
+async function fetchData(channel) {
+  const url = `https://api.thingspeak.com/channels/${channel.id}/fields/${channel.field}.json?api_key=${channel.readKey}&results=30`;
+  const response = await fetch(url);
+  const data = await response.json();
+  return data.feeds;
+}
+
+function getColor(value) {
+  if (value > 40) return "green";
+  if (value > 20) return "orange";
+  return "red";
+}
+
+function calculateDrainRateFromFull(feeds, field) {
+
+  const values = feeds.map(f => parseFloat(f[`field${field}`]));
+  const times = feeds.map(f => new Date(f.created_at).getTime());
+
+  let lastFullIndex = -1;
+
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (values[i] === 100) {
+      lastFullIndex = i;
+      break;
+    }
+  }
+
+  if (lastFullIndex === -1 || lastFullIndex === values.length - 1)
+    return null;
+
+  const fullTime = times[lastFullIndex];
+  const currentTime = times[times.length - 1];
+  const currentValue = values[values.length - 1];
+
+  const elapsedSeconds = (currentTime - fullTime) / 1000;
+
+  const ratePerSecond = (100 - currentValue) / elapsedSeconds;
+
+  if (ratePerSecond <= 0) return null;
+
+  const secondsRemaining = currentValue / ratePerSecond;
+
+  const minutes = Math.floor(secondsRemaining / 60);
+  const seconds = Math.floor(secondsRemaining % 60);
+
+  return `${minutes} min ${seconds} s restantes`;
+}
+
+
+function estimateTimeRemaining(current, rate) {
+  if (rate <= 0) return "—";
+  const minutes = current / rate;
+  return `${Math.round(minutes)} min restantes`;
+}
+
+function sendEmail(patientName) {
+    //Incluir "YOUR_SERVICE_ID" y "YOUR_TEMPLATE_ID"
+  emailjs.send("service_z74yrch", "template_0n6fntj", {
+    patient: patientName,
+    email: "alvaro.canibanop@gmail.com",
+  });
+}   
+    
+async function updateDashboard() {
+    
+  let criticalCount = 0;
+
+  for (let i=0; i<channels.length; i++) {
+
+    const feeds = await fetchData(channels[i]);
+      
+    if (!feeds.length) continue;
+
+    const lastFeedTime = new Date(feeds[feeds.length - 1].created_at).getTime();
+    lastTimestamps[i] = lastFeedTime;
+
+    const now = Date.now();
+    const isStandby = (now - lastFeedTime) > STANDBY_LIMIT;
+      
+    const title = document.getElementById(`title${i}`);
+
+    if (isStandby) {
+        
+      lastValues[i] = "standby";
+
+      title.innerHTML = `${channels[i].name} - Sensor ${i+1} pendiente de activar`;
+
+      charts[i].data.labels = [];
+      charts[i].data.datasets[0].data = [];
+      charts[i].update();
+
+      document.getElementById(`tankFill${i}`).style.height = "0%";
+      document.getElementById(`tankValue${i}`).innerHTML = "--";
+
+      document.getElementById(`status${i}`).innerHTML = "STANDBY";
+      document.getElementById(`prediction${i}`).innerHTML = "";
+
+      continue;
+      
+    } else {
+      title.innerHTML = `${channels[i].name} - Sensor ${i+1} Midiendo...`;
+    }
+
+    const labels = feeds.map(f=>new Date(f.created_at).toLocaleTimeString());
+    const values = feeds.map(f=>parseFloat(f[`field${channels[i].field}`]));
+
+    const chart = charts[i];
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = values;
+
+    const current = Math.round(values[values.length-1]);
+    lastValues[i] = current;
+    const color = getColor(current);
+
+    chart.data.datasets[0].borderColor = color;
+    chart.update();
+	
+    const tank = document.getElementById(`tankFill${i}`);
+    tank.style.height = current + "%";
+    tank.style.backgroundColor = color;
+    
+    const tankValue = document.getElementById(`tankValue${i}`);
+    tankValue.innerHTML = `${current}%`;
+    if (current < 55) {
+      tankValue.style.color = "#000000";   // negro
+    } else {
+      tankValue.style.color = "#ffffff";   // blanco
+    }
+
+    const status = document.getElementById(`status${i}`);
+    const prediction = document.getElementById(`prediction${i}`);
+
+    if (current <= 5) {
+      status.innerHTML = "⚠ ALERTA CRÍTICA";
+      status.className = "status alert";
+    } else {
+      status.innerHTML = current > 40 ? "Estable" :
+                         current > 20 ? "Nivel bajo" : "Crítico";
+      status.className = "status";
+    }
+	
+	const timeRemaining = calculateDrainRateFromFull(feeds, channels[i].field);
+	prediction.innerHTML = timeRemaining ? timeRemaining : "Calculando...";
+
+
+    if (current === 0 && !emailSent[i]) {
+      sendEmail(channels[i].name);
+      emailSent[i] = true;
+    }
+      
+    if (current <= 20) criticalCount++;
+      
+  }
+    
+    document.getElementById("summaryBar").innerHTML =
+  `Nivel de suero crítico en ${criticalCount} de ${channels.length} pacientes
+   | Última actualización: ${new Date().toLocaleTimeString()}`;
+    
+    applyFilters();
+
+}
+
+function applyFilters(){
+
+  const selectedPatient=document.getElementById("patientFilter").value;
+  const selectedLevel=document.getElementById("levelFilter").value;
+
+  for(let i=0;i<channels.length;i++){
+
+    const current=lastValues[i];
+    let show=true;
+
+    if(selectedPatient!=="all" && selectedPatient!=i)
+      show=false;
+
+    if(selectedLevel==="standby" && current!=="standby")
+      show=false;
+
+    if(selectedLevel==="stable" && (current==="standby" || current<=40))
+      show=false;
+
+    if(selectedLevel==="low" && (current==="standby" || current>40 || current<=20))
+      show=false;
+
+    if(selectedLevel==="critical" && (current==="standby" || current>20))
+      show=false;
+
+    cards[i].style.display=show?"flex":"none";
+  }
+}
+
+patientFilter.addEventListener("change",applyFilters);
+document.getElementById("levelFilter")
+  .addEventListener("change",applyFilters);
+    
+async function downloadCSV() {
+
+  let csv = "Paciente,Fecha,Valor\n";
+
+  for (let i=0; i<channels.length; i++) {
+
+    const feeds = await fetchData(channels[i]);
+
+    feeds.forEach(f=>{
+      const value = f[`field${channels[i].field}`];
+      csv += `${channels[i].name},${f.created_at},${value}\n`;
+    });
+  }
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = window.URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "datos_suero.csv";
+  a.click();
+}
+
+updateDashboard();
+setInterval(updateDashboard, 1000);
+
+</script>
+
+<div id="downloadBar">
+  <a href="#" onclick="downloadCSV()">Descargar datos en CSV</a>
+</div>    
+    
+</body>
+</html>
+
